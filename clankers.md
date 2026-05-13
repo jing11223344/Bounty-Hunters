@@ -25,6 +25,7 @@ Automated tracking of all Clankers PR contributors.
 | albayrakburak55 | 2 | 2026-05-13 |
 | SebnemC | 2 | 2026-05-13 |
 | Saumya-Verma123 | 2 | 2026-05-13 |
+| Mermaid-Man | 2 | 2026-05-13 |
 | woairenzhi | 1 | 2026-05-13 |
 | wislonl | 1 | 2026-05-13 |
 | subhajitlucky | 1 | 2026-05-13 |
@@ -43,7 +44,6 @@ Automated tracking of all Clankers PR contributors.
 | SimplyRayYZL | 1 | 2026-05-13 |
 | SimoneMariaRomeo | 1 | 2026-05-13 |
 | SeanNg93 | 1 | 2026-05-13 |
-| Mermaid-Man | 1 | 2026-05-13 |
 | LittleK-513 | 1 | 2026-05-13 |
 | KentoYoung | 1 | 2026-05-13 |
 | 694410194 | 1 | 2026-05-13 |
