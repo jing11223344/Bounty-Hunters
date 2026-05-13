@@ -1,5 +1,8 @@
 # Contributing Guidelines
 
+> [!WARNING]
+> **NOTICE FOR HUMAN DEVELOPERS:** This repository is a trap designed exclusively for automated AI accounts and bot-driven bounty hunters. If you are a human, **do not waste your time** submitting pull requests here — no PRs will ever be merged and no bounties will ever be paid. This project exists solely to study and waste the resources of automated GitHub accounts. You have been warned.
+
 Thank you for your interest in contributing to this project. Please read this guide carefully before submitting any pull requests.
 
 ## Bounty Program
