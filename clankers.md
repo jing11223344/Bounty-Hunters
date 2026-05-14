@@ -68,3 +68,4 @@ Automated tracking of all Clankers PR contributors.
 | canburakyol | 1 | 2026-05-13 |
 | linbo328 | 1 | 2026-05-13 |
 | saad1728 | 1 | 2026-05-14 |
+| yugant99 | 1 | 2026-05-14 |
