@@ -546,6 +546,12 @@
     "last_pr": "2026-05-16T13:23:06.633Z"
   },
   {
+    "username": "heavry",
+    "total_prs": 2,
+    "first_pr": "2026-05-16T15:38:56.830Z",
+    "last_pr": "2026-05-16T15:39:07.261Z"
+  },
+  {
     "username": "ErenCankutUYSAL",
     "total_prs": 1,
     "first_pr": "2026-05-13T19:25:27Z",
@@ -820,11 +826,5 @@
     "total_prs": 1,
     "first_pr": "2026-05-16T14:42:37.757Z",
     "last_pr": "2026-05-16T14:42:37.757Z"
-  },
-  {
-    "username": "heavry",
-    "total_prs": 1,
-    "first_pr": "2026-05-16T15:38:56.830Z",
-    "last_pr": "2026-05-16T15:38:56.830Z"
   }
 ]
