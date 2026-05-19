@@ -1,3 +1,5 @@
+import time
+import threading
 from typing import Annotated
 
 from annotated_doc import Doc
@@ -5,7 +7,7 @@ from fastapi.openapi.models import APIKey, APIKeyIn
 from fastapi.security.base import SecurityBase
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.status import HTTP_401_UNAUTHORIZED
+from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_429_TOO_MANY_REQUESTS
 
 
 class APIKeyBase(SecurityBase):
@@ -318,3 +320,162 @@ class APIKeyCookie(APIKeyBase):
     async def __call__(self, request: Request) -> str | None:
         api_key = request.cookies.get(self.model.name)
         return self.check_api_key(api_key)
+
+
+class RateLimitStore:
+    """Thread-safe in-memory sliding window rate limit tracker."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._windows: dict[str, list[float]] = {}
+
+    def check(self, key: str, max_requests: int, window_seconds: float) -> tuple[bool, float]:
+        """Check if key is within rate limit. Returns (allowed, retry_after_seconds)."""
+        now = time.time()
+        cutoff = now - window_seconds
+        with self._lock:
+            if key not in self._windows:
+                self._windows[key] = []
+            timestamps = self._windows[key]
+            # Remove expired timestamps
+            while timestamps and timestamps[0] < cutoff:
+                timestamps.pop(0)
+            if len(timestamps) >= max_requests:
+                retry_after = timestamps[0] + window_seconds - now
+                return False, max(0.0, retry_after)
+            timestamps.append(now)
+            return True, 0.0
+
+
+# Global rate limit store (shared across instances)
+_rate_limit_store = RateLimitStore()
+
+
+def _parse_rate_limit(rate_limit: str) -> tuple[int, float]:
+    """Parse '100/minute', '1000/hour', or '5/10s' into (max_requests, window_seconds)."""
+    _UNIT_TO_SECONDS = {
+        "second": 1.0, "seconds": 1.0, "s": 1.0,
+        "minute": 60.0, "minutes": 60.0, "m": 60.0,
+        "hour": 3600.0, "hours": 3600.0, "h": 3600.0,
+        "day": 86400.0, "days": 86400.0, "d": 86400.0,
+    }
+    parts = rate_limit.strip().split("/")
+    if len(parts) != 2:
+        raise ValueError(f"Invalid rate_limit format: '{rate_limit}'. Use format like '100/minute' or '1000/hour'.")
+    try:
+        count = int(parts[0])
+    except ValueError:
+        raise ValueError(f"Invalid count in rate_limit: '{parts[0]}'")
+    unit_raw = parts[1].lower().strip()
+    # Extract numeric prefix from unit (e.g., "10s" -> 10, "s")
+    import re
+    match = re.match(r"(\d+)\s*(.*)", unit_raw)
+    if match:
+        multiplier = int(match.group(1))
+        unit = match.group(2).strip() or "s"
+    else:
+        multiplier = 1
+        unit = unit_raw
+    base_window = _UNIT_TO_SECONDS.get(unit)
+    if base_window is None:
+        raise ValueError(
+            f"Invalid time unit in rate_limit: '{unit_raw}'. "
+            f"Use second(s)/s, minute(s)/m, hour(s)/h, or day(s)/d."
+        )
+    return count, base_window * multiplier
+
+
+class APIKeyWithRateLimit(APIKeyHeader):
+    """
+    API key authentication with rate limiting and deprecated key support.
+
+    Extends `APIKeyHeader` with:
+    - **Rate limiting**: limits requests per API key using a sliding window
+    - **Deprecated keys**: old keys still authenticate but include a Warning header
+
+    ## Usage
+
+    ```python
+    from fastapi import Depends, FastAPI
+    from fastapi.security import APIKeyWithRateLimit
+
+    app = FastAPI()
+
+    # Allow 100 requests per minute, with one deprecated key
+    api_key_scheme = APIKeyWithRateLimit(
+        name="x-api-key",
+        rate_limit="100/minute",
+        deprecated_keys=["old-key-123"],
+    )
+
+    @app.get("/items/")
+    async def read_items(api_key: str = Depends(api_key_scheme)):
+        return {"api_key": api_key}
+    ```
+    """
+
+    def __init__(
+        self,
+        *,
+        name: Annotated[str, Doc("Header name.")],
+        rate_limit: Annotated[
+            str,
+            Doc("Rate limit string, e.g. '100/minute' or '1000/hour'."),
+        ],
+        deprecated_keys: Annotated[
+            list[str] | None,
+            Doc(
+                "List of deprecated API keys that still work "
+                "but include a Warning header in the response."
+            ),
+        ] = None,
+        scheme_name: Annotated[
+            str | None,
+            Doc("Security scheme name for OpenAPI."),
+        ] = None,
+        description: Annotated[
+            str | None,
+            Doc("Security scheme description for OpenAPI."),
+        ] = None,
+        auto_error: Annotated[
+            bool,
+            Doc(
+                "By default, if the header is not provided, "
+                "automatically cancel and send an error."
+            ),
+        ] = True,
+    ):
+        super().__init__(
+            name=name,
+            scheme_name=scheme_name,
+            description=description,
+            auto_error=auto_error,
+        )
+        self.max_requests, self.window_seconds = _parse_rate_limit(rate_limit)
+        self.rate_limit_str = rate_limit
+        self.deprecated_keys = set(deprecated_keys) if deprecated_keys else set()
+
+    async def __call__(self, request: Request) -> str | None:
+        api_key = request.headers.get(self.model.name)
+        api_key = self.check_api_key(api_key)
+        if api_key is None:
+            return None
+
+        # Check rate limit
+        allowed, retry_after = _rate_limit_store.check(
+            api_key, self.max_requests, self.window_seconds
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests",
+                headers={"Retry-After": str(int(retry_after))},
+            )
+
+        # Check deprecated keys
+        if api_key in self.deprecated_keys:
+            request.state.warning_header = (
+                f'299 - "The API key \\"{api_key[:4]}...\\" is deprecated and will be deactivated soon"'
+            )
+
+        return api_key
