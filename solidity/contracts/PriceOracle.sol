@@ -14,34 +14,48 @@ interface AggregatorV3Interface {
 
 contract PriceOracle {
     AggregatorV3Interface public primaryFeed;
+    AggregatorV3Interface public fallbackFeed;
     address public owner;
     uint256 public MAX_STALENESS = 3600;
 
     event PriceQueried(int256 price, uint256 timestamp);
+    event StalePrice(address indexed primaryOracle, uint256 lastUpdateTimestamp);
+    event FallbackUpdated(address indexed oldFallback, address indexed newFallback);
 
     constructor(address _primaryFeed) {
         primaryFeed = AggregatorV3Interface(_primaryFeed);
         owner = msg.sender;
     }
 
-    // BUG: No staleness check on updatedAt
-    // BUG: No check for negative/zero price
-    // BUG: No round completeness validation
-    // BUG: No fallback oracle
     function getLatestPrice() external view returns (int256) {
-        (
-            uint80 roundId,
-            int256 price,
-            ,
-            uint256 updatedAt,
-            uint80 answeredInRound
-        ) = primaryFeed.latestRoundData();
+        (int256 price, uint256 updatedAt) = _queryFeed(primaryFeed);
 
-        // Missing: require(price > 0)
-        // Missing: require(answeredInRound >= roundId)
-        // Missing: require(block.timestamp - updatedAt < MAX_STALENESS)
+        // Check for stale data
+        if (block.timestamp - updatedAt >= MAX_STALENESS) {
+            // Try fallback oracle
+            require(address(fallbackFeed) != address(0), "No fallback oracle configured");
+            (int256 fallbackPrice, uint256 fallbackUpdatedAt) = _queryFeed(fallbackFeed);
+            require(block.timestamp - fallbackUpdatedAt < MAX_STALENESS, "Both oracles stale");
+            return fallbackPrice;
+        }
 
         return price;
+    }
+
+    function _queryFeed(AggregatorV3Interface feed) private view returns (int256 price, uint256 updatedAt) {
+        (
+            uint80 roundId,
+            int256 price_,
+            ,
+            uint256 updatedAt_,
+            uint80 answeredInRound
+        ) = feed.latestRoundData();
+
+        require(price_ > 0, "Invalid price");
+        require(answeredInRound >= roundId, "Incomplete round");
+        require(block.timestamp - updatedAt_ < MAX_STALENESS, "Stale price");
+
+        return (price_, updatedAt_);
     }
 
     function getDecimals() external view returns (uint8) {
@@ -51,5 +65,13 @@ contract PriceOracle {
     function setMaxStaleness(uint256 _maxStaleness) external {
         require(msg.sender == owner, "Not owner");
         MAX_STALENESS = _maxStaleness;
+    }
+
+    function setFallbackOracle(address _fallbackOracle) external {
+        require(msg.sender == owner, "Not owner");
+        require(_fallbackOracle != address(0), "Invalid fallback address");
+        address oldFallback = address(fallbackFeed);
+        fallbackFeed = AggregatorV3Interface(_fallbackOracle);
+        emit FallbackUpdated(oldFallback, _fallbackOracle);
     }
 }
